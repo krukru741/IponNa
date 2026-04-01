@@ -133,14 +133,27 @@ export const Bills: React.FC = () => {
 
       // If recurring, create the next bill for the following month
       if (bill.isRecurring) {
-        const nextDueDate = new Date(bill.dueDate);
-        nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+        // Set the new due date to exactly one month from today (when it was marked as paid)
+        const nextDueDate = new Date();
+        const currentMonth = nextDueDate.getMonth();
+        nextDueDate.setMonth(currentMonth + 1);
+        
+        // Handle end of month wrapping (e.g., Jan 31 -> Mar 3 -> Feb 28)
+        if (nextDueDate.getMonth() !== (currentMonth + 1) % 12) {
+          nextDueDate.setDate(0);
+        }
+        
+        // Format as YYYY-MM-DD to create a UTC midnight date, matching handleSubmit
+        const year = nextDueDate.getFullYear();
+        const month = String(nextDueDate.getMonth() + 1).padStart(2, '0');
+        const day = String(nextDueDate.getDate()).padStart(2, '0');
+        const formattedDate = `${year}-${month}-${day}`;
         
         await addDoc(collection(db, 'bills'), {
           userId: auth.currentUser.uid,
           name: bill.name,
           amount: parseFloat(bill.amount),
-          dueDate: nextDueDate.toISOString().slice(0, 10),
+          dueDate: new Date(formattedDate).toISOString(), // Full ISO string for Firestore rules
           isRecurring: true,
           isPaid: false,
           createdAt: new Date().toISOString()
