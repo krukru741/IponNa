@@ -1,0 +1,170 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+    
+    function isRequestOwner() {
+      return isAuthenticated() && request.auth.uid == request.resource.data.userId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidString(field, minLen, maxLen) {
+      return request.resource.data[field] is string && 
+             request.resource.data[field].size() >= minLen && 
+             request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !('field' in request.resource.data) || 
+             (request.resource.data[field] is string && 
+              request.resource.data[field].size() >= minLen && 
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    
+    function isValidUser() {
+      return hasRequiredFields(['name', 'email', 'language', 'createdAt']) &&
+             isValidString('name', 1, 100) &&
+             isValidString('email', 5, 100) &&
+             request.resource.data.language in ['en', 'tl'] &&
+             request.resource.data.createdAt is string &&
+             isValidOptionalString('pin', 4, 100);
+    }
+
+    function isValidTransaction() {
+      return hasRequiredFields(['userId', 'name', 'amount', 'type', 'category', 'date', 'createdAt']) &&
+             isValidString('name', 1, 100) &&
+             request.resource.data.amount is number &&
+             request.resource.data.type in ['income', 'expense'] &&
+             isValidString('category', 1, 50) &&
+             request.resource.data.date is string &&
+             request.resource.data.createdAt is string &&
+             isValidOptionalString('note', 0, 500) &&
+             (!('isRecurring' in request.resource.data) || request.resource.data.isRecurring is bool);
+    }
+
+    function isValidLoan() {
+      return hasRequiredFields(['userId', 'type', 'person', 'amount', 'status', 'createdAt']) &&
+             request.resource.data.type in ['lent', 'borrowed'] &&
+             isValidString('person', 1, 100) &&
+             request.resource.data.amount is number &&
+             request.resource.data.status in ['pending', 'paid'] &&
+             request.resource.data.createdAt is string &&
+             (!('dueDate' in request.resource.data) || request.resource.data.dueDate is string);
+    }
+
+    function isValidPaluwagan() {
+      return hasRequiredFields(['userId', 'name', 'totalAmount', 'contributionAmount', 'frequency', 'status', 'createdAt']) &&
+             isValidString('name', 1, 100) &&
+             request.resource.data.totalAmount is number &&
+             request.resource.data.contributionAmount is number &&
+             request.resource.data.frequency in ['daily', 'weekly', 'bi-weekly', 'monthly'] &&
+             request.resource.data.status in ['active', 'completed'] &&
+             request.resource.data.createdAt is string &&
+             (!('myTurnDate' in request.resource.data) || request.resource.data.myTurnDate is string);
+    }
+
+    function isValidBill() {
+      return hasRequiredFields(['userId', 'name', 'amount', 'dueDate', 'isPaid', 'createdAt']) &&
+             isValidString('name', 1, 100) &&
+             request.resource.data.amount is number &&
+             request.resource.data.dueDate is string &&
+             request.resource.data.isPaid is bool &&
+             request.resource.data.createdAt is string &&
+             (!('isRecurring' in request.resource.data) || request.resource.data.isRecurring is bool);
+    }
+
+    function isValidCategory() {
+      return hasRequiredFields(['userId', 'name', 'type', 'createdAt']) &&
+             isValidString('name', 1, 50) &&
+             request.resource.data.type in ['income', 'expense'] &&
+             request.resource.data.createdAt is string;
+    }
+
+    function isValidGoal() {
+      return hasRequiredFields(['userId', 'category', 'amount', 'month', 'createdAt']) &&
+             isValidString('category', 1, 50) &&
+             request.resource.data.amount is number &&
+             request.resource.data.amount > 0 &&
+             isValidString('month', 7, 7) && // YYYY-MM
+             request.resource.data.createdAt is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser();
+      allow update: if isOwner(userId) && isValidUser() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isDocOwner();
+      allow create: if isRequestOwner() && isValidTransaction();
+      allow update: if isDocOwner() && isRequestOwner() && isValidTransaction() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDocOwner();
+    }
+
+    match /loans/{loanId} {
+      allow read: if isDocOwner();
+      allow create: if isRequestOwner() && isValidLoan();
+      allow update: if isDocOwner() && isRequestOwner() && isValidLoan() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDocOwner();
+    }
+
+    match /paluwagan/{paluwaganId} {
+      allow read: if isDocOwner();
+      allow create: if isRequestOwner() && isValidPaluwagan();
+      allow update: if isDocOwner() && isRequestOwner() && isValidPaluwagan() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDocOwner();
+    }
+
+    match /bills/{billId} {
+      allow read: if isDocOwner();
+      allow create: if isRequestOwner() && isValidBill();
+      allow update: if isDocOwner() && isRequestOwner() && isValidBill() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDocOwner();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if isDocOwner();
+      allow create: if isRequestOwner() && isValidCategory();
+      allow update: if isDocOwner() && isRequestOwner() && isValidCategory() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDocOwner();
+    }
+
+    match /goals/{goalId} {
+      allow read: if isDocOwner();
+      allow create: if isRequestOwner() && isValidGoal();
+      allow update: if isDocOwner() && isRequestOwner() && isValidGoal() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDocOwner();
+    }
+  }
+}
