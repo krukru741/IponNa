@@ -37,6 +37,48 @@ export const Bills: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    // Request notification permission if not granted
+    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!bills.length) return;
+
+    // Check for upcoming bills
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    bills.forEach(bill => {
+      if (bill.isPaid) return;
+
+      const dueDate = new Date(bill.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+
+      const isToday = dueDate.getTime() === today.getTime();
+      const isTomorrow = dueDate.getTime() === tomorrow.getTime();
+
+      if (isToday || isTomorrow) {
+        const notificationKey = `notified_bill_${bill.id}`;
+        const hasNotified = localStorage.getItem(notificationKey);
+
+        if (!hasNotified && 'Notification' in window && Notification.permission === 'granted') {
+          const dayText = isToday ? 'today' : 'tomorrow';
+          const title = `Bill Due ${isToday ? 'Today' : 'Tomorrow'}!`;
+          const body = `Reminder: Your bill for ${bill.name} (₱${bill.amount.toLocaleString()}) is due ${dayText}.`;
+          
+          new Notification(title, { body });
+          localStorage.setItem(notificationKey, 'true');
+        }
+      }
+    });
+  }, [bills]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auth.currentUser) return;
@@ -65,12 +107,45 @@ export const Bills: React.FC = () => {
   };
 
   const markAsPaid = async (billId: string, currentCreatedAt: string) => {
+    if (!auth.currentUser) return;
     try {
+      const bill = bills.find(b => b.id === billId);
+      if (!bill) return;
+
       const billRef = doc(db, 'bills', billId);
       await updateDoc(billRef, {
         isPaid: true,
         createdAt: currentCreatedAt // required by rules
       });
+
+      // Auto-create an expense transaction
+      await addDoc(collection(db, 'transactions'), {
+        userId: auth.currentUser.uid,
+        name: `${bill.name} Bill`,
+        amount: parseFloat(bill.amount),
+        type: 'expense',
+        category: 'Bills',
+        date: new Date().toISOString(),
+        note: 'Auto-generated from Bills',
+        isRecurring: bill.isRecurring,
+        createdAt: new Date().toISOString()
+      });
+
+      // If recurring, create the next bill for the following month
+      if (bill.isRecurring) {
+        const nextDueDate = new Date(bill.dueDate);
+        nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+        
+        await addDoc(collection(db, 'bills'), {
+          userId: auth.currentUser.uid,
+          name: bill.name,
+          amount: parseFloat(bill.amount),
+          dueDate: nextDueDate.toISOString().slice(0, 10),
+          isRecurring: true,
+          isPaid: false,
+          createdAt: new Date().toISOString()
+        });
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `bills/${billId}`);
     }

@@ -4,7 +4,7 @@ import { db, auth, handleFirestoreError, OperationType } from '../firebase';
 import { useAppStore } from '../store';
 import { useTranslation } from '../i18n';
 import { format } from 'date-fns';
-import { ArrowDownCircle, ArrowUpCircle, Target, ChevronRight, BarChart2 } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Target, ChevronRight, BarChart2, CreditCard, Users, Banknote } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -13,6 +13,9 @@ export const Dashboard: React.FC = () => {
   const t = useTranslation(language);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [goals, setGoals] = useState<any[]>([]);
+  const [loans, setLoans] = useState<any[]>([]);
+  const [paluwagan, setPaluwagan] = useState<any[]>([]);
+  const [bills, setBills] = useState<any[]>([]);
   const [balance, setBalance] = useState(0);
   const [income, setIncome] = useState(0);
   const [expense, setExpense] = useState(0);
@@ -71,9 +74,39 @@ export const Dashboard: React.FC = () => {
       setGoals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'goals'));
 
+    const qLoans = query(
+      collection(db, 'loans'),
+      where('userId', '==', auth.currentUser.uid),
+      where('status', '==', 'pending')
+    );
+    const unsubLoans = onSnapshot(qLoans, (snapshot) => {
+      setLoans(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'loans'));
+
+    const qPaluwagan = query(
+      collection(db, 'paluwagan'),
+      where('userId', '==', auth.currentUser.uid),
+      where('status', '==', 'active')
+    );
+    const unsubPaluwagan = onSnapshot(qPaluwagan, (snapshot) => {
+      setPaluwagan(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'paluwagan'));
+
+    const qBills = query(
+      collection(db, 'bills'),
+      where('userId', '==', auth.currentUser.uid),
+      where('isPaid', '==', false)
+    );
+    const unsubBills = onSnapshot(qBills, (snapshot) => {
+      setBills(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'bills'));
+
     return () => {
       unsubscribe();
       unsubGoals();
+      unsubLoans();
+      unsubPaluwagan();
+      unsubBills();
     };
   }, []);
 
@@ -192,6 +225,121 @@ export const Dashboard: React.FC = () => {
                     <div 
                       className={`h-1 rounded-full transition-all duration-500 ease-out ${isOverBudget ? 'bg-red-500' : percentage > 80 ? 'bg-yellow-500' : 'bg-emerald-500'}`}
                       style={{ width: `${percentage}%` }}
+                    ></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="flex justify-between items-center mb-2 px-1">
+          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+            <CreditCard size={16} className="text-emerald-600" />
+            Upcoming Bills
+          </h2>
+          <Link to="/bills" className="text-[10px] text-emerald-600 font-medium flex items-center hover:text-emerald-700 transition-colors">
+            View All <ChevronRight size={12} />
+          </Link>
+        </div>
+        
+        {bills.length === 0 ? (
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center">
+            <p className="text-[10px] text-gray-500">No upcoming bills</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {bills.slice(0, 2).map((bill) => (
+              <div key={bill.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+                <div>
+                  <p className="font-semibold text-xs text-gray-900">{bill.name}</p>
+                  <p className="text-[10px] text-gray-500">Due: {format(new Date(bill.dueDate), 'MMM dd, yyyy')}</p>
+                </div>
+                <p className="font-bold text-xs text-red-600">₱{bill.amount.toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="flex justify-between items-center mb-2 px-1">
+          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+            <Banknote size={16} className="text-emerald-600" />
+            Active Utang
+          </h2>
+          <Link to="/loans" className="text-[10px] text-emerald-600 font-medium flex items-center hover:text-emerald-700 transition-colors">
+            View All <ChevronRight size={12} />
+          </Link>
+        </div>
+        
+        {loans.length === 0 ? (
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center">
+            <p className="text-[10px] text-gray-500">No active utang</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {loans.slice(0, 2).map((loan) => {
+              const paidAmount = loan.installments 
+                ? loan.installments.filter((i: any) => i.status === 'paid').reduce((sum: number, i: any) => sum + i.amount, 0) 
+                : (loan.status === 'paid' ? loan.amount : 0);
+              const remainingBalance = Math.max(0, loan.amount - paidAmount);
+
+              return (
+                <div key={loan.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold text-xs text-gray-900">{loan.person}</p>
+                    <p className="text-[10px] text-gray-500 capitalize">{loan.type === 'borrowed' ? 'I owe' : 'Owes me'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`font-bold text-xs ${loan.type === 'borrowed' ? 'text-red-600' : 'text-emerald-600'}`}>
+                      ₱{remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-[9px] text-gray-400">of ₱{loan.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="flex justify-between items-center mb-2 px-1">
+          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+            <Users size={16} className="text-emerald-600" />
+            Active Paluwagan
+          </h2>
+          <Link to="/paluwagan" className="text-[10px] text-emerald-600 font-medium flex items-center hover:text-emerald-700 transition-colors">
+            View All <ChevronRight size={12} />
+          </Link>
+        </div>
+        
+        {paluwagan.length === 0 ? (
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center">
+            <p className="text-[10px] text-gray-500">No active paluwagan</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {paluwagan.slice(0, 2).map((group) => {
+              const totalCycles = group.totalCycles || 1;
+              const paidCycles = group.paidCycles || 0;
+              const progress = Math.min((paidCycles / totalCycles) * 100, 100);
+
+              return (
+                <div key={group.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="font-semibold text-xs text-gray-900">{group.name}</span>
+                    <span className="text-[10px] font-medium text-gray-500">
+                      Cycle {paidCycles} / {totalCycles}
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-1 overflow-hidden">
+                    <div 
+                      className="bg-blue-500 h-1 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${progress}%` }}
                     ></div>
                   </div>
                 </div>
